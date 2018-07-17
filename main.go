@@ -57,45 +57,49 @@ func thisWeekEventsWithText(data string, text string) []event {
 	var startdate, enddate string
 	var item event
 
-	// get week start and end time for later comparisons
 	startweek, endweek := weekBoundaries()
 
 	// iterate through iCal data and select relevant events
 	scanner := bufio.NewScanner(strings.NewReader(data))
 	for scanner.Scan() {
 		line := scanner.Text()
-        if strings.HasPrefix(line, "BEGIN:VEVENT") {
-			// new event, reset relevancy
-			item.relevant = false
-        } else if strings.HasPrefix(line, "DTSTART;VALUE=DATE:") {
-			// event start date, check whether it is relevant for this week
-			startdate = strings.Split(line, ":")[1]
-			item.start, _ = time.Parse("20060102", startdate)
-			if item.start.Unix() < endweek.Unix() {
-				item.relevant = true
-			}
-        } else if strings.HasPrefix(line, "DTEND;VALUE=DATE:") {
-			// event end date, check whether it is relevant for this week
-			enddate = strings.Split(line, ":")[1]
-			item.end, _ = time.Parse("20060102", enddate)
-			// decrease end date by 1 day, as the iCal events end on date when
-			// the event is not relevant anymore.
-			item.end = decrease1Day(item.end)
-			if item.end.Unix() >= startweek.Unix() && item.relevant {
-				item.relevant = true
-			} else {
-				item.relevant = false
-			}
-        } else if strings.HasPrefix(line, "SUMMARY:") {
-			item.summary = strings.TrimPrefix(line, "SUMMARY:")
-			if item.relevant && !strings.Contains(item.summary, text) {
-				item.relevant = false
-			}
-        } else if strings.HasPrefix(line, "END:VEVENT") {
-			if item.relevant {
-				response = append(response, item)
-			}
-		}
+        switch line {
+        case "BEGIN:VEVENT":
+            // new event, reset relevancy
+            item.relevant = false
+        case "END:VEVENT":
+            if item.relevant {
+                response = append(response, item)
+            }
+        default:
+            switch strings.Split(line, ":")[0] {
+            case "DTSTART;VALUE=DATE":
+                // event start date, check whether it is relevant for this week
+                startdate = strings.Split(line, ":")[1]
+                item.start, _ = time.Parse("20060102", startdate)
+                if item.start.Unix() < endweek.Unix() {
+                    item.relevant = true
+                }
+            case "DTEND;VALUE=DATE":
+                // event end date, check whether it is relevant for this week
+                enddate = strings.Split(line, ":")[1]
+                item.end, _ = time.Parse("20060102", enddate)
+                // decrease end date by 1 day, as the iCal events end on date when
+                // the event is not relevant anymore.
+                item.end = decrease1Day(item.end)
+                if item.end.Unix() >= startweek.Unix() && item.relevant {
+                    item.relevant = true
+                } else {
+                    item.relevant = false
+                }
+
+            case "SUMMARY":
+                item.summary = strings.TrimPrefix(line, "SUMMARY:")
+                if item.relevant && !strings.Contains(item.summary, text) {
+                    item.relevant = false
+                }
+            }
+        }
 	}
 	return response
 }
