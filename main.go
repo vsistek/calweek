@@ -101,9 +101,13 @@ func thisWeekEventsWithText(data string, text string) []string {
 		case end.MatchString(line):
 			if relevant {
 				event = startdate.Format("01-02-2006")
-				event += " - "
-				event += enddate.Format("01-02-2006")
-				event += ": "
+                if startdate.Format("01-02-2006") == enddate.Format("01-02-2006") {
+                    event += ":              "
+                } else {
+                    event += " - "
+                    event += enddate.Format("01-02-2006")
+                    event += ": "
+                }
 				event += summarystr
 				response = append(response, event)
 			}
