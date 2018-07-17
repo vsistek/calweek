@@ -7,11 +7,17 @@ import (
 	"net/http"
 	"os"
 	"os/user"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+type event struct {
+	summary  string
+	start    time.Time
+	end      time.Time
+    relevant bool
+}
 
 func check(e error) {
 	if e != nil {
@@ -45,75 +51,75 @@ func decrease1Day(date time.Time) time.Time {
 	return time.Unix(dateunix, 0)
 }
 
-// return []strings of events relevant to this week filtered by a given text in summary
-func thisWeekEventsWithText(data string, text string) []string {
-	var response []string
-	var relevant bool
-	var event, startdatestr, enddatestr, summarystr string
-	var startdate, enddate time.Time
+// return [] of events relevant to this week filtered by a given text in summary
+func thisWeekEventsWithText(data string, text string) []event {
+	var response []event
+	var startdate, enddate string
+	var item event
 
 	// get week start and end time for later comparisons
 	startweek, endweek := weekBoundaries()
-
-	// prepare regexps for matching
-	var begin = regexp.MustCompile(`^BEGIN\:VEVENT$`)
-	var dtstart = regexp.MustCompile(`^DTSTART;VALUE=DATE:.+$`)
-	var dtend = regexp.MustCompile(`^DTEND;VALUE=DATE:.+$`)
-	var summary = regexp.MustCompile(`^SUMMARY:.+$`)
-	var end = regexp.MustCompile(`^END\:VEVENT$`)
 
 	// iterate through iCal data and select relevant events
 	scanner := bufio.NewScanner(strings.NewReader(data))
 	for scanner.Scan() {
 		line := scanner.Text()
-		switch {
-		case begin.MatchString(line):
+        if strings.HasPrefix(line, "BEGIN:VEVENT") {
 			// new event, reset relevancy
-			relevant = false
-
-		case dtstart.MatchString(line):
+			item.relevant = false
+        } else if strings.HasPrefix(line, "DTSTART;VALUE=DATE:") {
 			// event start date, check whether it is relevant for this week
-			startdatestr = strings.Split(line, ":")[1]
-			startdate, _ = time.Parse("20060102", startdatestr)
-			if startdate.Unix() < endweek.Unix() {
-				relevant = true
+			startdate = strings.Split(line, ":")[1]
+			item.start, _ = time.Parse("20060102", startdate)
+			if item.start.Unix() < endweek.Unix() {
+				item.relevant = true
 			}
-
-		case dtend.MatchString(line):
+        } else if strings.HasPrefix(line, "DTEND;VALUE=DATE:") {
 			// event end date, check whether it is relevant for this week
-			enddatestr = strings.Split(line, ":")[1]
-			enddate, _ = time.Parse("20060102", enddatestr)
+			enddate = strings.Split(line, ":")[1]
+			item.end, _ = time.Parse("20060102", enddate)
 			// decrease end date by 1 day, as the iCal events end on date when
 			// the event is not relevant anymore.
-			enddate = decrease1Day(enddate)
-			if enddate.Unix() >= startweek.Unix() && relevant {
-				relevant = true
+			item.end = decrease1Day(item.end)
+			if item.end.Unix() >= startweek.Unix() && item.relevant {
+				item.relevant = true
 			} else {
-				relevant = false
+				item.relevant = false
 			}
-
-		case summary.MatchString(line):
-			summarystr = strings.TrimPrefix(line, "SUMMARY:")
-			if relevant && !strings.Contains(summarystr, text) {
-				relevant = false
+        } else if strings.HasPrefix(line, "SUMMARY:") {
+			item.summary = strings.TrimPrefix(line, "SUMMARY:")
+			if item.relevant && !strings.Contains(item.summary, text) {
+				item.relevant = false
 			}
-
-		case end.MatchString(line):
-			if relevant {
-				event = startdate.Format("01-02-2006")
-                if startdate.Format("01-02-2006") == enddate.Format("01-02-2006") {
-                    event += ":              "
-                } else {
-                    event += " - "
-                    event += enddate.Format("01-02-2006")
-                    event += ": "
-                }
-				event += summarystr
-				response = append(response, event)
+        } else if strings.HasPrefix(line, "END:VEVENT") {
+			if item.relevant {
+				response = append(response, item)
 			}
 		}
 	}
 	return response
+}
+
+func printEvents(events []event) {
+	var eventstrings []string
+	var eventstr string
+
+	for _, event := range events {
+		eventstr = event.start.Format("01-02-2006")
+		if event.start.Format("01-02-2006") == event.end.Format("01-02-2006") {
+			eventstr += ":              "
+		} else {
+			eventstr += " - "
+			eventstr += event.end.Format("01-02-2006")
+			eventstr += ": "
+		}
+		eventstr += event.summary
+		eventstrings = append(eventstrings, eventstr)
+	}
+	sort.Strings(eventstrings)
+	for _, item := range eventstrings {
+		fmt.Println(item)
+	}
 }
 
 func main() {
@@ -139,11 +145,8 @@ func main() {
 	body, err := ioutil.ReadAll(resp.Body)
 	check(err)
 
-	// process the body and get relevant and nicely formatted events
+	// process the response body and get relevant events
 	myevents := thisWeekEventsWithText(string(body[:]), text)
-	// sort events alphadetically
-	sort.Strings(myevents)
-	for _, event := range myevents {
-		fmt.Println(event)
-	}
+
+	printEvents(myevents)
 }
